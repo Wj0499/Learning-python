@@ -1,0 +1,122 @@
+import re
+from typing import List, Dict, Tuple, Optional
+
+
+class SearchEngineV2Opt:
+    """优化版搜索引擎：文档增删改查 + 分词检索 + 分页"""
+    def __init__(self):
+        # 文档库：key=文档ID，value=文档字典，O(1)快速定位
+        self._doc_store: Dict[int, Dict] = {}
+
+    @staticmethod
+    def tokenize(text: str) -> List[str]:
+        """文本分词：小写提取中英数字词汇"""
+        if not isinstance(text, str) or not text.strip():
+            return []
+        lower_text = text.lower()
+        return re.findall(r"[\u4e00-\u9fa5a-zA-Z0-9]+", lower_text)
+
+    def add_doc(self, doc_id: int, title: str, content: str) -> bool:
+        """新增文档，重复ID返回False"""
+        if doc_id in self._doc_store:
+            print(f"提示：文档ID {doc_id} 已存在，添加失败")
+            return False
+        self._doc_store[doc_id] = {
+            "id": doc_id,
+            "title": title,
+            "content": content
+        }
+        return True
+
+    def del_doc(self, doc_id: int) -> bool:
+        """删除文档，不存在返回False"""
+        if doc_id not in self._doc_store:
+            print(f"提示：文档ID {doc_id} 不存在，删除失败")
+            return False
+        del self._doc_store[doc_id]
+        return True
+
+    def modify_doc(self, doc_id: int, new_title: str, new_content: str) -> bool:
+        """更新文档内容，不存在返回False"""
+        if doc_id not in self._doc_store:
+            print(f"提示：文档ID {doc_id} 不存在，修改失败")
+            return False
+        doc = self._doc_store[doc_id]
+        doc["title"] = new_title
+        doc["content"] = new_content
+        return True
+
+    def get_all_docs(self) -> List[Dict]:
+        """获取全部文档列表"""
+        return list(self._doc_store.values())
+
+    def search(self, query: str) -> List[Dict]:
+        """
+        交集检索：必须同时包含所有查询分词才匹配
+        :param query: 搜索关键词
+        :return: 匹配文档列表
+        """
+        query_words = self.tokenize(query)
+        if not query_words:
+            return []
+
+        match_docs = []
+        for doc in self._doc_store.values():
+            # 只分词一次，避免重复拼接
+            doc_words = self.tokenize(f"{doc['title']} {doc['content']}")
+            # 全部查询词都在文档分词内才命中
+            if all(word in doc_words for word in query_words):
+                match_docs.append(doc)
+        return match_docs
+
+    @staticmethod
+    def page_result(data: List, page: int = 1, page_size: int = 2) -> Tuple[List, int, int]:
+        """
+        分页处理 + 边界自动修正
+        :param data: 待分页数据列表
+        :param page: 当前页码
+        :param page_size: 每页条数
+        :return: (当前页数据, 总条数, 总页数)
+        """
+        total = len(data)
+        if total == 0:
+            return [], 0, 0
+        # 边界修正
+        page = max(page, 1)
+        page_size = max(page_size, 1)
+        total_page = (total + page_size - 1) // page_size
+
+        if page > total_page:
+            page = total_page
+        start = (page - 1) * page_size
+        end = start + page_size
+        return data[start:end], total, total_page
+
+
+if __name__ == "__main__":
+    se = SearchEngineV2Opt()
+    # 测试新增文档
+    se.add_doc(1, "Java教程", "Java是主流后端编程语言")
+    se.add_doc(2, "Java项目实战", "使用Java开发网站与搜索引擎")
+    se.add_doc(3, "前端开发", "HTML CSS JS 网页制作")
+    # 重复ID测试
+    se.add_doc(1, "重复文档", "测试重复拦截")
+
+    print("===== V2优化版：组合搜索 + 分页 =====")
+    ret = se.search("Java 搜索引擎")
+    page_data, total_cnt, total_p = se.page_result(ret, page=1, page_size=2)
+    print(f"匹配总数：{total_cnt}，总页数：{total_p}")
+    for d in page_data:
+        print(f"ID:{d['id']} 标题:{d['title']}")
+
+    # 删除文档测试
+    se.del_doc(3)
+    print("\n删除文档3后文档总数：", len(se.get_all_docs()))
+
+    # 修改文档测试
+    se.modify_doc(2, "Java项目实战进阶", "Java开发网站、搜索引擎与大数据")
+    print("\n修改ID=2后的文档：", se.get_all_docs()[1])
+
+    # 分页越界测试
+    empty_page, _, _ = se.page_result(ret, page=99, page_size=2)
+    print(f"\n访问99页数据：{empty_page}")
