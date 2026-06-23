@@ -1,0 +1,156 @@
+import string
+from typing import List, Dict, Set, Optional
+
+
+class BSTNode:
+    """二叉排序树节点：存储单词与对应文档ID集合"""
+    def __init__(self, word: str, doc_id: int):
+        self.word: str = word
+        self.doc_ids: Set[int] = {doc_id}  # 改用集合，高效去重
+        self.left: Optional[BSTNode] = None
+        self.right: Optional[BSTNode] = None
+
+
+class BinarySearchTree:
+    """二叉排序树：实现单词索引的插入与查询"""
+    def __init__(self):
+        self.root: Optional[BSTNode] = None
+
+    def insert(self, word: str, doc_id: int) -> None:
+        """插入单词与文档ID，自动去重"""
+        if not self.root:
+            self.root = BSTNode(word, doc_id)
+            return
+
+        cur = self.root
+        while True:
+            if word < cur.word:
+                if not cur.left:
+                    cur.left = BSTNode(word, doc_id)
+                    break
+                cur = cur.left
+            elif word > cur.word:
+                if not cur.right:
+                    cur.right = BSTNode(word, doc_id)
+                    break
+                cur = cur.right
+            else:
+                # 单词已存在，集合添加ID自动去重
+                cur.doc_ids.add(doc_id)
+                break
+
+    def search_word(self, word: str) -> List[int]:
+        """查询单词，返回文档ID列表"""
+        cur = self.root
+        while cur:
+            if word == cur.word:
+                return list(cur.doc_ids)
+            cur = cur.left if word < cur.word else cur.right
+        return []
+
+
+class SearchEngineV5:
+    """升级版搜索引擎：BST倒排索引 + 标签检索 + 文本预处理"""
+    def __init__(self):
+        self.index_tree = BinarySearchTree()
+        self.documents: Dict[int, Dict[str, str]] = {}
+        self.tag_index: Dict[str, List[int]] = {}
+
+    def _preprocess_word(self, word: str) -> str:
+        """私有方法：文本预处理（去标点、转小写、去空格）"""
+        word = word.strip().strip(string.punctuation).lower()
+        return word
+
+    def add_document(self, doc_id: int, title: str, content: str, tag: str) -> None:
+        """添加文档，构建全量索引，拦截重复文档"""
+        # 拦截重复文档
+        if doc_id in self.documents:
+            print(f"提示：文档 {doc_id} 已存在，跳过添加")
+            return
+
+        # 存储文档原始信息
+        self.documents[doc_id] = {
+            "title": title,
+            "content": content,
+            "tag": tag
+        }
+
+        # 构建标签索引
+        tag = tag.strip()
+        if tag not in self.tag_index:
+            self.tag_index[tag] = []
+        self.tag_index[tag].append(doc_id)
+
+        # 分词 + 预处理 + 临时去重，减少BST插入次数
+        raw_text = f"{title} {content}"
+        raw_words = raw_text.split()
+        # 单次文档内单词去重，避免重复插入同一单词
+        unique_words = set(self._preprocess_word(w) for w in raw_words)
+
+        for word in unique_words:
+            if word:  # 过滤空字符串
+                self.index_tree.insert(word, doc_id)
+
+    def search_by_word(self, keyword: str) -> List[Dict[str, str]]:
+        """单关键词检索"""
+        keyword = self._preprocess_word(keyword)
+        doc_ids = self.index_tree.search_word(keyword)
+        return [self.documents[did] for did in doc_ids]
+
+    def search_by_tag(self, tag: str) -> List[Dict[str, str]]:
+        """标签检索"""
+        tag = tag.strip()
+        doc_ids = self.tag_index.get(tag, [])
+        return [self.documents[did] for did in doc_ids]
+
+    def search_multi_and(self, keywords: List[str]) -> List[Dict[str, str]]:
+        """多关键词 AND 检索：同时包含所有关键词"""
+        if not keywords:
+            return []
+        # 预处理所有关键词
+        proc_keys = [self._preprocess_word(k) for k in keywords]
+        base_ids = set(self.index_tree.search_word(proc_keys[0]))
+
+        for key in proc_keys[1:]:
+            curr_ids = set(self.index_tree.search_word(key))
+            base_ids.intersection_update(curr_ids)
+            if not base_ids:
+                break
+        return [self.documents[did] for did in base_ids]
+
+    def search_multi_or(self, keywords: List[str]) -> List[Dict[str, str]]:
+        """多关键词 OR 检索：包含任意一个关键词"""
+        all_ids: Set[int] = set()
+        proc_keys = [self._preprocess_word(k) for k in keywords]
+        for key in proc_keys:
+            all_ids.update(self.index_tree.search_word(key))
+        return [self.documents[did] for did in all_ids]
+
+
+# ------------------- 测试用例 -------------------
+if __name__ == "__main__":
+    engine = SearchEngineV5()
+
+    # 添加测试文档
+    engine.add_document(1, "C++语法入门", "学习C++面向对象编程基础", "编程")
+    engine.add_document(2, "MySQL数据库教程", "数据库存储与查询操作", "数据库")
+    engine.add_document(3, "C++项目实战", "用C++开发后台服务", "编程")
+    engine.add_document(4, "Python数据分析", "使用Python处理数据", "数据分析")
+    # 测试重复文档拦截
+    engine.add_document(1, "重复文档测试", "测试重复添加", "测试")
+
+    print("===== 关键词检索：C++ =====")
+    for doc in engine.search_by_word("C++"):
+        print(f"- 标题：{doc['title']}，标签：{doc['tag']}")
+
+    print("\n===== 标签检索：编程 =====")
+    for doc in engine.search_by_tag("编程"):
+        print(f"- 标题：{doc['title']}，内容：{doc['content']}")
+
+    print("\n===== 多词AND检索：C++ + 项目 =====")
+    for doc in engine.search_multi_and(["C++", "项目"]):
+        print(f"- 标题：{doc['title']}")
+
+    print("\n===== 多词OR检索：Python + MySQL =====")
+    for doc in engine.search_multi_or(["Python", "MySQL"]):
+        print(f"- 标题：{doc['title']}")
